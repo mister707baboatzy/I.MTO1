@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>I.MTO1 Language Coding</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --color-command:   #61afef;
+      --color-fn:        #98c379;
+      --color-punct:     #abb2bf;
+      --color-printout:  rgb(119, 255, 119);
+      --color-warnsys:   orange;
+      --color-errorin:   red;
+    }
+    body {
+      font-family: Inter, sans-serif;
+    }
+    .libary-button {
+      background: #1f2937;
+      color: white;
+      text-align: center;
+      font-family: 'Fira Code', monospace;
+      font-size: 1rem;
+      padding: 12px;
+      width: 100%;
+      max-width: 480px;
+      border-radius: 8px;
+      border: 1px solid #374151;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .libary-button:hover {
+      background: #374151;
+    }
+    .editor-container pre {
+      font-family: 'Fira Code', monospace;
+      font-size: 1rem;
+      background: #282c34;
+      color: #abb2bf;
+      padding: 1rem;
+      height: 260px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border-radius: 8px;
+      outline: none;
+    }
+    .command { color: var(--color-command) }
+    .function-name, .string { color: var(--color-fn) }
+    .punctuation { color: var(--color-punct) }
+    .console-box {
+      font-family: 'Fira Code', monospace;
+      background: #0A192F;
+      color: white;
+      border-radius: 8px;
+      padding: 1rem;
+      height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .console-line.printout { color: var(--color-printout); }
+    .console-line.warnsys  { color: var(--color-warnsys); }
+    .console-line.errorin  { color: var(--color-errorin); }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-900 min-h-screen px-4 py-6">
+  <header class="text-center mb-8">
+    <h1 class="text-4xl font-extrabold text-blue-700">I.MTO1 Programming Simulate</h1>
+    <p class="text-gray-600 mt-2">A live code editor and interpreter for the I.MTO1 language.</p>
+  </header>
+
+  <main class="max-w-5xl mx-auto space-y-8">
+    <!-- Editor Section -->
+    <section>
+      <h2 class="text-2xl font-semibold mb-4">Code Editor</h2>
+      <div class="editor-container border border-gray-300 shadow rounded-lg">
+        <pre id="highlighting-content" contenteditable="true" spellcheck="false"></pre>
+      </div>
+    </section>
+
+    <!-- Action Buttons -->
+    <section class="flex flex-col md:flex-row items-center justify-center gap-4">
+      <div class="libary-button" onclick="goToLibrary()">Open I.MTO1 Library</div>
+      <button onclick="runCustomCode()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
+        Run Code
+      </button>
+    </section>
+
+    <!-- Output and UI -->
+    <section class="grid md:grid-cols-2 gap-6">
+      <div>
+        <h3 class="text-xl font-semibold mb-2">User Interface Output</h3>
+        <iframe id="uiFrame" class="w-full h-[300px] bg-white border rounded-lg shadow-inner"></iframe>
+      </div>
+      <div>
+        <h3 class="text-xl font-semibold mb-2">Console Output</h3>
+        <div id="consoleOutput" class="console-box"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Scripts -->
+  <script>
+    const editor = document.getElementById("highlighting-content");
+    const consoleOutput = document.getElementById("consoleOutput");
+    const uiFrame = document.getElementById("uiFrame");
+    const env = {};
+    const functions = {};
+
+    function goToLibrary() {
+      if (confirm("Do you want to go to the I.MTO1 Library?")) {
+        window.location.href = "library.html";
+      }
+    }
+
+    editor.addEventListener("keydown", e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const sel = window.getSelection();
+        const range = sel.getRangeAt(0);
+        const br = document.createTextNode("\n");
+        range.deleteContents();
+        range.insertNode(br);
+        range.setStartAfter(br);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        setTimeout(updateHighlighting, 0);
+      }
+    });
+
+    editor.addEventListener("input", () => {
+      const offset = saveCaretPosition(editor);
+      setTimeout(() => {
+        const txt = editor.innerText;
+        editor.innerText = txt;
+        editor.innerHTML = highlightCode(txt);
+        restoreCaretPosition(editor, offset);
+      }, 0);
+    });
+
+    function highlightCode(code) {
+      return code
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/(".*?")/g, '<span class="string">$1</span>')
+        .replace(/\b(Terminal|System|var|flag|int|num|Func)\b/g, '<span class="command">$1</span>')
+        .replace(/\b(printout|warnsys|errorin|pause|checkCT)\b/g, '<span class="function-name">$1</span>')
+        .replace(/([\(\){}:;])/g, '<span class="punctuation">$1</span>');
+    }
+
+    function saveCaretPosition(el) {
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return null;
+      const range = sel.getRangeAt(0).cloneRange();
+      range.selectNodeContents(el);
+      range.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
+      return range.toString().length;
+    }
+
+    function restoreCaretPosition(el, offset) {
+      if (offset == null) return;
+      const sel = window.getSelection();
+      const range = document.createRange();
+      let idx = 0;
+      function dfs(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const next = idx + node.length;
+          if (offset <= next) {
+            range.setStart(node, offset - idx);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            return true;
+          }
+          idx = next;
+        } else {
+          for (let c of node.childNodes) if (dfs(c)) return true;
+        }
+        return false;
+      }
+      dfs(el);
+    }
+
+    function addConsoleLine(text, type) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      div.className = "console-line " + type;
+      consoleOutput.appendChild(div);
+      consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    }
+
+    async function runCustomCode() {
+      consoleOutput.innerHTML = "";
+      uiFrame.srcdoc = "";
+      const lines = editor.innerText.split("\n");
+      const code = lines.join("\n");
+      let i = 0;
+
+      while (i < lines.length) {
+        let raw = lines[i].trim();
+        if (!raw) { i++; continue; }
+
+        try {
+          if (raw.startsWith("Func:")) {
+            const fnName = raw.match(/Func:\s*(\w+)/)[1];
+            let body = [], depth = 0;
+            while (++i < lines.length) {
+              const line = lines[i];
+              if (line.includes("{")) depth++;
+              if (line.includes("}")) depth--;
+              body.push(line);
+              if (depth <= 0) break;
+            }
+            functions[fnName] = body.slice(0, -1);
+            continue;
+          }
+
+          if (raw.startsWith(":.")) {
+            const fnCall = raw.match(/:\.(\w+)\(\);?/);
+            if (!fnCall || !functions[fnCall[1]]) throw new Error("Function not found");
+            lines.splice(i + 1, 0, ...functions[fnCall[1]]);
+            i++;
+            continue;
+          }
+
+          if (raw.startsWith("if (")) {
+            const condition = raw.match(/if\s*\((.+)\)/)[1].trim();
+            let block = [], elseBlock = [], depth = 0;
+            i++;
+            while (i < lines.length && !lines[i].includes("/!()")) {
+              if (lines[i].includes("{")) depth++;
+              if (lines[i].includes("}")) depth--;
+              block.push(lines[i++]);
+              if (depth <= 0) break;
+            }
+            if (lines[i]?.includes("/!()")) {
+              i++;
+              while (i < lines.length && !lines[i].includes("}")) {
+                elseBlock.push(lines[i++]);
+              }
+              i++;
+            }
+            const result = new Function("env", "with(env) { return " + condition + "; }")(env);
+            const target = result ? block : elseBlock;
+            lines.splice(i, 0, ...target.map(l => l.trim()));
+            continue;
+          }
+
+          if (!raw.endsWith(";")) throw new Error(`Missing semicolon`);
+          const line = raw.slice(0, -1).trim();
+
+          if (/^int\s+(\w+)\s+(\w+)\s*([\+\-\*\/])\s*(\w+)$/.test(line)) {
+            const [, res, a, op, b] = line.match(/^int\s+(\w+)\s+(\w+)\s*([\+\-\*\/])\s*(\w+)$/);
+            env[res] = eval(`${env[a]} ${op} ${env[b]}`);
+            i++; continue;
+          }
+
+          if (/^(int|num|flag|var)\s+\w+/.test(line)) {
+            const [, type, name, value] = line.match(/^(int|num|flag|var)\s+(\w+)(?:\s+(.+))?/) || [];
+            if (type === "var" && value && /^\d+$/.test(value)) throw new Error("var can't be numeric");
+            env[name] = value ? eval(`with(env){${value}}`) : (type === "flag" ? false : 0);
+            i++; continue;
+          }
+
+          if (line.startsWith("Terminal.")) {
+            const m = line.match(/Terminal\.(\w+)\((.+)\)/);
+            if (!m) throw new Error("Invalid Terminal call");
+            const [_, fn, arg] = m;
+            const val = new Function("env", "with(env){ return " + arg + "; }")(env);
+            addConsoleLine(val, fn);
+            i++; continue;
+          }
+
+          if (line.startsWith("System.pause(")) {
+            const delay = Number(line.match(/pause\((.+)\)/)[1]);
+            await new Promise(r => setTimeout(r, delay * 1000));
+            i++; continue;
+          }
+
+          if (line === "System.checkCT()") {
+            addConsoleLine(new Date().toLocaleTimeString(), "printout");
+            i++; continue;
+          }
+
+          throw new Error("Unrecognized line");
+
+        } catch (err) {
+          addConsoleLine(`Error on line ${i + 1}: ${err.message}`, "errorin");
+          return;
+        }
+      }
+    }
+
+    function updateHighlighting() {
+      const offset = saveCaretPosition(editor);
+      const txt = editor.innerText;
+      editor.innerText = txt;
+      editor.innerHTML = highlightCode(txt);
+      restoreCaretPosition(editor, offset);
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      editor.innerText = `Func: intruduction {
+  Terminal.printout("Welcome to I.MTO1!") };`;
+      updateHighlighting();
+    });
+  </script>
+</body>
+</html>
