@@ -7,12 +7,12 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root {
-      --color-command:   #61afef;
-      --color-fn:        #98c379;
-      --color-punct:     #abb2bf;
-      --color-printout:  rgb(119, 255, 119);
-      --color-warnsys:   orange;
-      --color-errorin:   red;
+      --color-command:    #61afef;
+      --color-fn:         #98c379;
+      --color-punct:      #abb2bf;
+      --color-printout:   rgb(119, 255, 119);
+      --color-warnsys:    orange;
+      --color-errorin:    red;
     }
     body {
       font-family: Inter, sans-serif;
@@ -40,12 +40,15 @@
       background: #282c34;
       color: #abb2bf;
       padding: 1rem;
-      height: 260px;
+      height: 460px;
       overflow-y: auto;
-      white-space: pre-wrap;
+      white-space: pre-wrap; /* Important for preserving newlines */
       word-break: break-word;
       border-radius: 8px;
       outline: none;
+      /* Add these to ensure proper line breaking and space handling for pre */
+      tab-size: 4;
+      -moz-tab-size: 4;
     }
     .command { color: var(--color-command) }
     .function-name, .string { color: var(--color-fn) }
@@ -63,6 +66,10 @@
     .console-line.printout { color: var(--color-printout); }
     .console-line.warnsys  { color: var(--color-warnsys); }
     .console-line.errorin  { color: var(--color-errorin); }
+    .console-line.empty-line {
+      /* Style for empty lines, if needed. Can be just height or margin. */
+      min-height: 1.2em; /* Ensure the line takes up some space */
+    }
   </style>
 </head>
 <body class="bg-gray-100 text-gray-900 min-h-screen px-4 py-6">
@@ -72,7 +79,6 @@
   </header>
 
   <main class="max-w-5xl mx-auto space-y-8">
-    <!-- Editor Section -->
     <section>
       <h2 class="text-2xl font-semibold mb-4">Code Editor</h2>
       <div class="editor-container border border-gray-300 shadow rounded-lg">
@@ -80,7 +86,6 @@
       </div>
     </section>
 
-    <!-- Action Buttons -->
     <section class="flex flex-col md:flex-row items-center justify-center gap-4">
       <div class="libary-button" onclick="goToLibrary()">Open I.MTO1 Library</div>
       <button onclick="runCustomCode()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow transition">
@@ -88,7 +93,6 @@
       </button>
     </section>
 
-    <!-- Output and UI -->
     <section class="grid md:grid-cols-2 gap-6">
       <div>
         <h3 class="text-xl font-semibold mb-2">User Interface Output</h3>
@@ -101,7 +105,6 @@
     </section>
   </main>
 
-  <!-- Scripts -->
   <script>
     const editor = document.getElementById("highlighting-content");
     const consoleOutput = document.getElementById("consoleOutput");
@@ -115,72 +118,117 @@
       }
     }
 
+    // A debounce function to limit how often updateHighlighting runs
+    function debounce(func, delay) {
+      let timeout;
+      return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), delay);
+      };
+    }
+
+    // Debounced version of updateHighlighting
+    const debouncedUpdateHighlighting = debounce(updateHighlighting, 50); // Adjust delay as needed
+
+    editor.addEventListener("input", () => {
+      debouncedUpdateHighlighting();
+    });
+
     editor.addEventListener("keydown", e => {
+      // Prevent default behavior for Enter key to insert a proper newline
       if (e.key === "Enter") {
         e.preventDefault();
         const sel = window.getSelection();
         const range = sel.getRangeAt(0);
-        const br = document.createTextNode("\n");
+        const br = document.createTextNode("\n"); // Use text node for newline
         range.deleteContents();
         range.insertNode(br);
         range.setStartAfter(br);
         range.collapse(true);
         sel.removeAllRanges();
         sel.addRange(range);
-        setTimeout(updateHighlighting, 0);
+        debouncedUpdateHighlighting(); // Update highlighting immediately after newline
       }
     });
 
-    editor.addEventListener("input", () => {
-      const offset = saveCaretPosition(editor);
-      setTimeout(() => {
-        const txt = editor.innerText;
-        editor.innerText = txt;
-        editor.innerHTML = highlightCode(txt);
-        restoreCaretPosition(editor, offset);
-      }, 0);
-    });
-
     function highlightCode(code) {
-      return code
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      // Ensure that characters like <, >, & are properly escaped BEFORE applying highlighting
+      // This is crucial to prevent injecting HTML from user input
+      const escapedCode = code
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+      return escapedCode
         .replace(/(".*?")/g, '<span class="string">$1</span>')
         .replace(/\b(Terminal|System|var|flag|int|num|Func)\b/g, '<span class="command">$1</span>')
-        .replace(/\b(printout|warnsys|errorin|pause|checkCT)\b/g, '<span class="function-name">$1</span>')
+        .replace(/\b(printout|warnsys|errorin|pause|checkCT|insertEm)\b/g, '<span class="function-name">$1</span>') // Added insertEm
         .replace(/([\(\){}:;])/g, '<span class="punctuation">$1</span>');
     }
 
     function saveCaretPosition(el) {
       const sel = window.getSelection();
-      if (!sel.rangeCount) return null;
+      if (!sel.rangeCount) return { node: null, offset: 0 };
+
       const range = sel.getRangeAt(0).cloneRange();
-      range.selectNodeContents(el);
-      range.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
-      return range.toString().length;
+      range.selectNodeContents(el); // Select all content in the editor
+      range.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset); // Set end to current caret position
+      // The length of the text content *before* the caret
+      return {
+        node: sel.getRangeAt(0).endContainer, // Store the actual node
+        offset: sel.getRangeAt(0).endOffset, // Store the offset within that node
+        length: range.toString().length // Total characters from start of element to caret
+      };
     }
 
-    function restoreCaretPosition(el, offset) {
-      if (offset == null) return;
+    function restoreCaretPosition(el, savedCaret) {
+      if (!savedCaret || savedCaret.node === null) return;
+
       const sel = window.getSelection();
       const range = document.createRange();
-      let idx = 0;
-      function dfs(node) {
+      let totalLength = 0;
+      let found = false;
+
+      // Function to traverse the DOM and find the target text node/offset
+      function findNodeAndSetCaret(node) {
         if (node.nodeType === Node.TEXT_NODE) {
-          const next = idx + node.length;
-          if (offset <= next) {
-            range.setStart(node, offset - idx);
-            range.collapse(true);
+          const nodeLength = node.textContent.length;
+          // Check if the caret position falls within this text node
+          if (totalLength + nodeLength >= savedCaret.length && !found) {
+            range.setStart(node, savedCaret.length - totalLength);
+            range.collapse(true); // Collapse to a single point (caret)
             sel.removeAllRanges();
             sel.addRange(range);
-            return true;
+            found = true;
           }
-          idx = next;
+          totalLength += nodeLength;
         } else {
-          for (let c of node.childNodes) if (dfs(c)) return true;
+          // If it's an element node, recurse into its children
+          for (let i = 0; i < node.childNodes.length; i++) {
+            if (found) break; // Stop if position is found
+            findNodeAndSetCaret(node.childNodes[i]);
+          }
         }
-        return false;
       }
-      dfs(el);
+
+      findNodeAndSetCaret(el);
+
+      // Fallback: If the exact position couldn't be restored (e.g., if content changed too much),
+      // try to place the caret at the end of the element.
+      if (!found) {
+        range.selectNodeContents(el);
+        range.collapse(false); // Collapse to the end
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+
+    function updateHighlighting() {
+      const offset = saveCaretPosition(editor);
+      const txt = editor.innerText; // Get the raw text content
+      editor.innerHTML = highlightCode(txt); // ONLY replace innerHTML once
+      restoreCaretPosition(editor, offset);
     }
 
     function addConsoleLine(text, type) {
@@ -191,119 +239,317 @@
       consoleOutput.scrollTop = consoleOutput.scrollHeight;
     }
 
+    // New function to insert an empty line at a specific position
+    function insertEmptyConsoleLine(lineNumber) {
+      const div = document.createElement("div");
+      div.textContent = ""; // Empty content
+      div.className = "console-line empty-line"; // Use a specific class for styling if needed
+
+      const children = consoleOutput.children;
+      // Convert 1-based line number to 0-based array index
+      // If lineNumber is 1, insert before child 0. If lineNumber is 2, insert before child 1, etc.
+      const targetIndex = lineNumber - 1;
+
+      if (targetIndex >= 0 && targetIndex < children.length) {
+        // Insert before the existing child at targetIndex
+        consoleOutput.insertBefore(div, children[targetIndex]);
+      } else {
+        // If targetIndex is out of bounds (e.g., negative or beyond current last line), append to the end
+        consoleOutput.appendChild(div);
+      }
+      consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    }
+
+
     async function runCustomCode() {
       consoleOutput.innerHTML = "";
-      uiFrame.srcdoc = "";
+      uiFrame.srcdoc = ""; // Clear UI frame
+      Object.keys(env).forEach(key => delete env[key]); // Clear environment
+      Object.keys(functions).forEach(key => delete functions[key]); // Clear functions
+
       const lines = editor.innerText.split("\n");
-      const code = lines.join("\n");
+      const executableLines = [...lines]; // Create a copy to modify during execution
       let i = 0;
 
-      while (i < lines.length) {
-        let raw = lines[i].trim();
-        if (!raw) { i++; continue; }
+      while (i < executableLines.length) {
+        let raw = executableLines[i].trim();
+        if (!raw) {
+          i++;
+          continue;
+        }
 
         try {
+          // Function definition
           if (raw.startsWith("Func:")) {
-            const fnName = raw.match(/Func:\s*(\w+)/)[1];
-            let body = [], depth = 0;
-            while (++i < lines.length) {
-              const line = lines[i];
-              if (line.includes("{")) depth++;
-              if (line.includes("}")) depth--;
-              body.push(line);
-              if (depth <= 0) break;
-            }
-            functions[fnName] = body.slice(0, -1);
-            continue;
-          }
+            const fnMatch = raw.match(/Func:\s*(\w+)\s*\{/);
+            if (!fnMatch) throw new Error("Invalid function definition syntax. Expected: Func: funcName {");
+            const fnName = fnMatch[1];
+            let body = [];
+            let depth = 1; // Start with 1 for the opening brace of the function
 
-          if (raw.startsWith(":.")) {
-            const fnCall = raw.match(/:\.(\w+)\(\);?/);
-            if (!fnCall || !functions[fnCall[1]]) throw new Error("Function not found");
-            lines.splice(i + 1, 0, ...functions[fnCall[1]]);
-            i++;
-            continue;
-          }
-
-          if (raw.startsWith("if (")) {
-            const condition = raw.match(/if\s*\((.+)\)/)[1].trim();
-            let block = [], elseBlock = [], depth = 0;
-            i++;
-            while (i < lines.length && !lines[i].includes("/!()")) {
-              if (lines[i].includes("{")) depth++;
-              if (lines[i].includes("}")) depth--;
-              block.push(lines[i++]);
-              if (depth <= 0) break;
-            }
-            if (lines[i]?.includes("/!()")) {
-              i++;
-              while (i < lines.length && !lines[i].includes("}")) {
-                elseBlock.push(lines[i++]);
+            i++; // Move to the line after "Func: funcName {"
+            while (i < executableLines.length && depth > 0) {
+              const line = executableLines[i].trim();
+              if (line.includes("{")) {
+                depth++;
+              }
+              if (line.includes("}")) {
+                depth--;
+              }
+              if (depth > 0) { // Only add lines if we are inside the function body
+                body.push(line);
               }
               i++;
             }
-            const result = new Function("env", "with(env) { return " + condition + "; }")(env);
-            const target = result ? block : elseBlock;
-            lines.splice(i, 0, ...target.map(l => l.trim()));
+            if (depth > 0) throw new Error("Missing closing brace for function " + fnName);
+            functions[fnName] = body;
+            continue; // Continue to the next line after function definition
+          }
+
+          // Function call
+          if (raw.startsWith(":.")) {
+            const fnCallMatch = raw.match(/:\.(\w+)\(\);?/);
+            if (!fnCallMatch) throw new Error("Invalid function call syntax. Expected: :.funcName();");
+            const fnName = fnCallMatch[1];
+            if (!functions[fnName]) throw new Error(`Function '${fnName}' not found.`);
+
+            // Insert function body at the current position
+            executableLines.splice(i + 1, 0, ...functions[fnName]);
+            i++; // Stay on the current line, next iteration will process the first line of the inserted function
             continue;
           }
 
-          if (!raw.endsWith(";")) throw new Error(`Missing semicolon`);
-          const line = raw.slice(0, -1).trim();
+          // If statement
+          if (raw.startsWith("if (")) {
+            const conditionMatch = raw.match(/if\s*\((.+)\)\s*\{/);
+            if (!conditionMatch) throw new Error("Invalid if statement syntax. Expected: if (condition) {");
+            const condition = conditionMatch[1].trim();
+            let ifBlock = [];
+            let elseBlock = [];
+            let currentBlock = ifBlock;
+            let depth = 1; // For the opening brace of the if statement
 
-          if (/^int\s+(\w+)\s+(\w+)\s*([\+\-\*\/])\s*(\w+)$/.test(line)) {
-            const [, res, a, op, b] = line.match(/^int\s+(\w+)\s+(\w+)\s*([\+\-\*\/])\s*(\w+)$/);
-            env[res] = eval(`${env[a]} ${op} ${env[b]}`);
-            i++; continue;
+            i++; // Move to the line after "if (condition) {"
+
+            // Parse if block
+            while (i < executableLines.length && depth > 0) {
+              const line = executableLines[i].trim();
+              if (line.includes("{")) depth++;
+              if (line.includes("}")) depth--;
+
+              if (depth > 0) { // Only add lines if we are inside the block
+                ifBlock.push(line);
+              }
+              i++;
+            }
+            if (depth > 0) throw new Error("Missing closing brace for if statement");
+
+            // Check for else block
+            if (executableLines[i] && executableLines[i].trim() === "/!() {") { // "/!() {" signifies "else {"
+              depth = 1;
+              i++; // Move to the line after "/!() {"
+              while (i < executableLines.length && depth > 0) {
+                const line = executableLines[i].trim();
+                if (line.includes("{")) depth++;
+                if (line.includes("}")) depth--;
+
+                if (depth > 0) { // Only add lines if we are inside the block
+                  elseBlock.push(line);
+                }
+                i++;
+              }
+              if (depth > 0) throw new Error("Missing closing brace for else block");
+            }
+
+            let result;
+            try {
+              result = new Function("env", "with(env) { return " + condition + "; }")(env);
+            } catch (e) {
+              throw new Error(`Invalid condition '${condition}': ${e.message}`);
+            }
+
+            if (result) {
+              executableLines.splice(i, 0, ...ifBlock);
+            } else {
+              executableLines.splice(i, 0, ...elseBlock);
+            }
+            continue; // Continue to process the lines of the chosen block
           }
 
-          if (/^(int|num|flag|var)\s+\w+/.test(line)) {
-            const [, type, name, value] = line.match(/^(int|num|flag|var)\s+(\w+)(?:\s+(.+))?/) || [];
-            if (type === "var" && value && /^\d+$/.test(value)) throw new Error("var can't be numeric");
-            env[name] = value ? eval(`with(env){${value}}`) : (type === "flag" ? false : 0);
-            i++; continue;
+          // All executable lines should end with a semicolon
+          if (!raw.endsWith(";")) {
+            throw new Error(`Missing semicolon at end of line: '${raw}'`);
+          }
+          const line = raw.slice(0, -1).trim(); // Remove semicolon
+
+          // Variable declaration and assignment
+          if (/^(int|num|flag|var)\s+\w+(?:\s*=\s*(.+))?$/.test(line)) {
+            const parts = line.split(/\s*=\s*/);
+            const declaration = parts[0].trim().split(/\s+/);
+            const type = declaration[0];
+            const name = declaration[1];
+            let value = parts.length > 1 ? parts[1].trim() : undefined;
+
+            if (env.hasOwnProperty(name)) {
+                throw new Error(`Variable '${name}' already declared.`);
+            }
+
+            if (type === "var" && value && /^-?\d+(\.\d+)?$/.test(value)) {
+                throw new Error("var type cannot be assigned a numeric value directly. Use quotes for string numbers.");
+            }
+
+            if (value !== undefined) {
+              try {
+                // Attempt to evaluate the value in the context of the environment
+                value = new Function("env", "with(env) { return " + value + "; }")(env);
+              } catch (e) {
+                throw new Error(`Invalid assignment value for '${name}': ${e.message}`);
+              }
+            } else {
+              // Default values for declarations without assignment
+              if (type === "int" || type === "num") {
+                value = 0;
+              } else if (type === "flag") {
+                value = false;
+              } else if (type === "var") {
+                value = ""; // Default for var, typically a string or anything
+              }
+            }
+            env[name] = value;
+            addConsoleLine(`Declared ${type} ${name} = ${JSON.stringify(env[name])}`, "printout");
+            i++;
+            continue;
           }
 
+          // Variable re-assignment (after declaration)
+          if (/^\w+\s*=\s*(.+)$/.test(line)) {
+            const parts = line.split(/\s*=\s*/, 2); // Split only on the first '='
+            const name = parts[0].trim();
+            const valueStr = parts[1].trim();
+
+            if (!env.hasOwnProperty(name)) {
+                throw new Error(`Variable '${name}' not declared.`);
+            }
+
+            let evaluatedValue;
+            try {
+                evaluatedValue = new Function("env", "with(env) { return " + valueStr + "; }")(env);
+            } catch (e) {
+                throw new Error(`Invalid assignment value for '${name}': ${e.message}`);
+            }
+
+            env[name] = evaluatedValue;
+            addConsoleLine(`Assigned ${name} = ${JSON.stringify(env[name])}`, "printout");
+            i++;
+            continue;
+          }
+
+          // Arithmetic operations for 'int' or 'num'
+          // Example: int resultVar = varA + varB;
+          if (/^(int|num)\s+(\w+)\s*=\s*(\w+)\s*([\+\-\*\/])\s*(\w+)$/.test(line)) {
+            const [, declareType, resultVar, operand1, operator, operand2] = line.match(/^(int|num)\s+(\w+)\s*=\s*(\w+)\s*([\+\-\*\/])\s*(\w+)$/);
+
+            if (!env.hasOwnProperty(operand1) || !env.hasOwnProperty(operand2)) {
+              throw new Error(`Undefined variable in arithmetic operation: '${operand1}' or '${operand2}'`);
+            }
+
+            const val1 = env[operand1];
+            const val2 = env[operand2];
+
+            if (typeof val1 !== 'number' || typeof val2 !== 'number') {
+              throw new Error(`Arithmetic operations require numeric variables. Found '${typeof val1}' and '${typeof val2}'.`);
+            }
+
+            let result;
+            switch (operator) {
+              case '+': result = val1 + val2; break;
+              case '-': result = val1 - val2; break;
+              case '*': result = val1 * val2; break;
+              case '/':
+                if (val2 === 0) throw new Error("Division by zero.");
+                result = val1 / val2;
+                break;
+              default: throw new Error("Unsupported arithmetic operator: " + operator);
+            }
+            env[resultVar] = result;
+            addConsoleLine(`Calculated ${resultVar} = ${result}`, "printout");
+            i++;
+            continue;
+          }
+
+
+          // Terminal commands
           if (line.startsWith("Terminal.")) {
-            const m = line.match(/Terminal\.(\w+)\((.+)\)/);
-            if (!m) throw new Error("Invalid Terminal call");
-            const [_, fn, arg] = m;
-            const val = new Function("env", "with(env){ return " + arg + "; }")(env);
-            addConsoleLine(val, fn);
-            i++; continue;
+            const m = line.match(/Terminal\.(\w+)\((.*)\)/); // More general matching for arguments
+            if (!m) throw new Error("Invalid Terminal call syntax. Expected: Terminal.function(arg);");
+            const [, fn, argStr] = m;
+
+            // Handle Terminal.insertEm specifically
+            if (fn === 'insertEm') {
+              const lineNumber = Number(new Function("env", "with(env){ return " + argStr + "; }")(env));
+              if (isNaN(lineNumber) || !Number.isInteger(lineNumber) || lineNumber < 1) {
+                throw new Error("Terminal.insertEm expects a positive integer line number (e.g., Terminal.insertEm(2);)");
+              }
+              insertEmptyConsoleLine(lineNumber);
+            } else {
+              // Existing Terminal functions (printout, warnsys, errorin)
+              let valToPrint;
+              // Handle string literals and variable evaluation
+              if (argStr.startsWith('"') && argStr.endsWith('"')) {
+                valToPrint = argStr.slice(1, -1); // Remove quotes for string literal
+              } else {
+                try {
+                  valToPrint = new Function("env", "with(env) { return " + argStr + "; }")(env);
+                } catch (e) {
+                  throw new Error(`Invalid argument '${argStr}' for Terminal.${fn}: ${e.message}`);
+                }
+              }
+              addConsoleLine(valToPrint, fn); // fn here is printout, warnsys, errorin
+            }
+            i++;
+            continue;
           }
 
+          // System commands
           if (line.startsWith("System.pause(")) {
-            const delay = Number(line.match(/pause\((.+)\)/)[1]);
-            await new Promise(r => setTimeout(r, delay * 1000));
-            i++; continue;
+            const delayMatch = line.match(/pause\((.+)\)/);
+            if (!delayMatch) throw new Error("Invalid System.pause syntax. Expected: System.pause(milliseconds);");
+            const delay = Number(new Function("env", "with(env){ return " + delayMatch[1] + "; }")(env));
+            if (isNaN(delay) || delay < 0) throw new Error("Invalid delay value for System.pause.");
+            addConsoleLine(`System: Pausing for ${delay} milliseconds...`, "warnsys");
+            await new Promise(r => setTimeout(r, delay)); // Use delay directly as milliseconds
+            addConsoleLine("System: Resumed.", "warnsys");
+            i++;
+            continue;
           }
 
           if (line === "System.checkCT()") {
-            addConsoleLine(new Date().toLocaleTimeString(), "printout");
-            i++; continue;
+            addConsoleLine(`Current Time: ${new Date().toLocaleTimeString()}`, "printout");
+            i++;
+            continue;
           }
 
-          throw new Error("Unrecognized line");
+          throw new Error(`Unrecognized or malformed line: '${raw}'`);
 
         } catch (err) {
           addConsoleLine(`Error on line ${i + 1}: ${err.message}`, "errorin");
+          // Optionally, stop execution on first error
           return;
         }
       }
     }
 
-    function updateHighlighting() {
-      const offset = saveCaretPosition(editor);
-      const txt = editor.innerText;
-      editor.innerText = txt;
-      editor.innerHTML = highlightCode(txt);
-      restoreCaretPosition(editor, offset);
-    }
-
+    // Initial highlighting on page load
     document.addEventListener("DOMContentLoaded", () => {
-      editor.innerText = `Func: intruduction {
-  Terminal.printout("Welcome to I.MTO1!") };`;
+      editor.innerText = `
+Func: introduction {
+  Terminal.printout("Current versions: 1.0");
+  Terminal.printout("Welcome to I.MTO1!");
+  System.checkCT();
+}
+
+:.introduction();
+`;
       updateHighlighting();
     });
   </script>
